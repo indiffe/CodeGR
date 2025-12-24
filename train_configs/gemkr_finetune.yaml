@@ -1,0 +1,71 @@
+# =========================================================
+# Model
+# =========================================================
+model:
+  # 对应 @registry.register_model("gemkr_codebert_dsi")
+  arch: gemkr_codebert_dsi
+
+  # 这里不再使用 model_type / pretrain_vicuna
+  # model_type: pretrain_vicuna   ❌ 删除
+
+  # Encoder / Decoder 参数已在 models/gemkr.yaml 中定义
+  # 这里只保留训练阶段需要的最小字段（可为空）
+  
+
+# =========================================================
+# Datasets（纯文本，CoSQA）
+# =========================================================
+datasets:
+  cosqa:
+    data_path: "./dataset/CoSQA/train.json"
+
+    # ❌ 删除所有 image / region / vis_processor
+    # img_root:
+    # region_feat_path:
+    # vis_processor:
+
+    text_processor:
+      train:
+        name: "codebert_text"
+        pretrained_model_name: "/data/lizhen/CodeDSI/codebert-base"
+        max_length: 512
+
+
+# =========================================================
+# Run / Task
+# =========================================================
+run:
+  # 对应 DSIPretrainTask
+  task: dsi_pretrain
+
+  # optimizer / lr
+  lr_sched: "linear_warmup_cosine_lr"
+  init_lr: 2e-5
+  min_lr: 1e-6
+  warmup_lr: 1e-7
+
+  weight_decay: 0.01
+  max_epoch: 5
+  iters_per_epoch: 2400
+
+  # ---------------- batch size ----------------
+  batch_size_train: 2
+  batch_size_eval: 2
+  gradient_accumulation_steps: 8
+
+  num_workers: 4
+  warmup_steps: 200
+
+  seed: 42
+  output_dir: "output/gemkr_codebert_dsi"
+
+  amp: True
+  resume_ckpt_path: null
+
+  evaluate: False
+  train_splits: ["train"]
+
+  device: "cuda"
+  world_size: 8
+  dist_url: "env://"
+  distributed: True

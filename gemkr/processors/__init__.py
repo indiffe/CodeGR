@@ -11,6 +11,7 @@ from gemkr.processors.blip_processors import (
     Blip2ImageEvalProcessor,
     BlipCaptionProcessor,
 )
+from gemkr.processors.codebert_text import CodeBERTTextProcessor
 
 from gemkr.common.registry import registry
 
@@ -19,6 +20,7 @@ __all__ = [
     "Blip2ImageTrainProcessor",
     "Blip2ImageEvalProcessor",
     "BlipCaptionProcessor",
+    "CodeBERTTextProcessor",
 ]
 
 

@@ -1,0 +1,9 @@
+#!/bin/bash
+
+export CUDA_VISIBLE_DEVICES=0
+export OMP_NUM_THREADS=1
+export PYTHONWARNINGS="ignore"
+
+CFG="train_configs/gemkr_finetune.yaml"
+
+python train.py --cfg-path $CFG

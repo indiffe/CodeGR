@@ -1,0 +1,50 @@
+# =========================================================
+# Dataset config (必须存在，供 BaseTask.build_datasets 使用)
+# =========================================================
+DATASET_CONFIG_DICT:
+  defaults: datasets/cosqa/defaults.yaml
+
+
+# =========================================================
+# Model config
+# =========================================================
+model:
+  # 对应 @registry.register_model("gemkr_codebert_dsi")
+  arch: gemkr_codebert_dsi
+
+  # -------- Encoder --------
+  encoder_name: "/data/lizhen/CodeDSI/codebert-base"
+  freeze_encoder: true
+
+  # -------- Decoder --------
+  decoder_name: "/data/lizhen/llama-7b"
+  hidden_size: 4096   # LLaMA-7B hidden size
+
+  # （可选）checkpoint 加载
+  # load_finetuned: false
+  # pretrained: ""
+
+
+# =========================================================
+# Run / Task config
+# =========================================================
+run:
+  task: dsi_pretrain
+  evaluate: false
+
+
+# =========================================================
+# Preprocess
+# Text-only 模型：必须显式移除 vision 相关配置
+# =========================================================
+preprocess:
+  text_processor:
+    train:
+      name: "codebert_text"
+      pretrained_model_name: "/data/lizhen/CodeDSI/codebert-base"
+      max_length: 512
+    eval:
+      name: "codebert_text"
+      pretrained_model_name: "/data/lizhen/CodeDSI/codebert-base"
+      max_length: 512
+
