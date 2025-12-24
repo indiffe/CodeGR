@@ -1,0 +1,39 @@
+# ================================
+# Run config
+# ================================
+run_cfg:
+  evaluate: false
+  max_epoch: 1
+  batch_size_train: 2
+  batch_size_eval: 2
+  num_workers: 2
+  seed: 42
+
+
+# ================================
+# Dataset config
+# BaseTask.build_datasets 会读取 cfg.datasets_cfg
+# ================================
+datasets_cfg:
+  cosqa_dsi:
+    data_type: text
+    build_info:
+      ann_path: dataset/CoSQA/cosqa_train.jsonl
+
+
+# ================================
+# Task config
+# ================================
+task:
+  name: dsi_pretrain
+
+
+# ================================
+# Model config（先占位，后面再细化）
+# ================================
+model:
+  arch: gemkr_codebert_dsi     # ⚠️ 必须与你 registry 中的 model key 一致
+  encoder_name: microsoft/codebert-base
+  decoder_name: meta-llama/Llama-2-7b-hf
+  hidden_size: 768
+  freeze_encoder: true
