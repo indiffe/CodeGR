@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Conda / venv
+.env
+.venv
+env/
+venv/
+
+# Logs & outputs
+logs/
+*.log
+wandb/
+runs/
+
+# Datasets & checkpoints
+dataset/
+data/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
