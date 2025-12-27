@@ -1,0 +1,29 @@
+model:
+  arch: gemkr_codebert_dsi
+
+  # =========================
+  # Encoder (CodeBERT)
+  # =========================
+  encoder_name: /data/lizhen/CodeDSI/codebert-base
+  freeze_encoder: true
+  encoder_max_length: 512
+
+  # =========================
+  # Decoder (LLaMA)
+  # =========================
+  decoder_name: /data/lizhen/llama-7b
+  hidden_size: 4096
+  decoder_max_length: 64
+
+  # =========================
+  # 🔴 DSI / Memory-critical settings
+  # =========================
+  prefix_len: 16                # ★ 必须：不要用 512 token prefix
+  freeze_decoder: true          # ★ 必须：单卡 3090 必须冻结
+  enable_gradient_checkpointing: true
+  decoder_dtype: float16        # 明确 dtype，避免混乱
+
+  # =========================
+  # Framework flags
+  # =========================
+  load_finetuned: false

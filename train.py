@@ -33,6 +33,8 @@ from gemkr.tasks import *
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
+registry.register_path("library_root", os.getcwd())
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Training")
 

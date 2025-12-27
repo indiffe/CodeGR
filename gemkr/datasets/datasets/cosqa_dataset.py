@@ -51,7 +51,7 @@ class CoSQADSIPretrainDataset(BaseDataset):
                     {
                         "query": data["query"],
                         "code": data["code"],
-                        "answer_id": data["docid"],  # ★ DSI supervision target
+                        "answer_id": data["docid"],  # DSI supervision target
                     }
                 )
 
@@ -61,7 +61,19 @@ class CoSQADSIPretrainDataset(BaseDataset):
     def __getitem__(self, index):
         """
         Return a single training sample.
-
-        The returned dict keys must match what DSIPretrainTask expects.
         """
         return self.samples[index]
+
+    @staticmethod
+    def collater(batch):
+        """
+        Collate function for DSI pretraining.
+
+        This is the ONLY correct place to define batching logic
+        in GEMKR / LAVIS-style datasets.
+        """
+        return {
+            "query": [b["query"] for b in batch],
+            "code": [b["code"] for b in batch],
+            "answer_id": [b["answer_id"] for b in batch],
+        }

@@ -16,7 +16,7 @@ class CoSQADSIPretrainBuilder(BaseDatasetBuilder):
               ann_path: dataset/CoSQA/cosqa_train.jsonl
     """
     DATASET_CONFIG_DICT = {
-        "defaults": "datasets/cosqa/defaults.yaml",
+        "default": "gemkr/configs/datasets/cosqa/defaults.yaml",
     }
 
     def __init__(self, config):

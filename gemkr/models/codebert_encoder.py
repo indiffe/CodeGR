@@ -1,14 +1,15 @@
 import torch
 import torch.nn as nn
-from transformers import RobertaModel
+from transformers import RobertaModel, RobertaTokenizer
 
 
 class CodeBERTEncoder(nn.Module):
     """
     CodeBERT encoder for (NL Query, Code) textual input.
 
-    This module ONLY handles text encoding and outputs
-    token-level hidden states.
+    Responsibilities (GEMKR-compatible):
+        - own tokenizer
+        - encode text into contextual token embeddings
     """
 
     def __init__(
@@ -18,6 +19,14 @@ class CodeBERTEncoder(nn.Module):
     ):
         super().__init__()
 
+        # -------------------------
+        # Tokenizer（关键补齐）
+        # -------------------------
+        self.tokenizer = RobertaTokenizer.from_pretrained(model_name)
+
+        # -------------------------
+        # Encoder
+        # -------------------------
         self.model = RobertaModel.from_pretrained(model_name)
         self.hidden_size = self.model.config.hidden_size
 

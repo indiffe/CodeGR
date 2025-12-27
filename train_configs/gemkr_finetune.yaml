@@ -4,25 +4,21 @@
 model:
   # 对应 @registry.register_model("gemkr_codebert_dsi")
   arch: gemkr_codebert_dsi
+  model_type: gemkr_codebert_dsi
 
-  # 这里不再使用 model_type / pretrain_vicuna
-  # model_type: pretrain_vicuna   ❌ 删除
+  # 这些参数在 models/gemkr_codebert.yaml 中定义
+  # 这里只声明训练阶段必须显式控制的项
+  prefix_len: 16
+  freeze_decoder: true
+  enable_gradient_checkpointing: true
 
-  # Encoder / Decoder 参数已在 models/gemkr.yaml 中定义
-  # 这里只保留训练阶段需要的最小字段（可为空）
-  
 
 # =========================================================
 # Datasets（纯文本，CoSQA）
 # =========================================================
 datasets:
-  cosqa:
+  cosqa_dsi:
     data_path: "./dataset/CoSQA/train.json"
-
-    # ❌ 删除所有 image / region / vis_processor
-    # img_root:
-    # region_feat_path:
-    # vis_processor:
 
     text_processor:
       train:
@@ -38,34 +34,52 @@ run:
   # 对应 DSIPretrainTask
   task: dsi_pretrain
 
-  # optimizer / lr
+  # =========================
+  # Optimization
+  # =========================
   lr_sched: "linear_warmup_cosine_lr"
   init_lr: 2e-5
   min_lr: 1e-6
   warmup_lr: 1e-7
+  warmup_steps: 200
 
   weight_decay: 0.01
   max_epoch: 5
   iters_per_epoch: 2400
 
-  # ---------------- batch size ----------------
-  batch_size_train: 2
-  batch_size_eval: 2
-  gradient_accumulation_steps: 8
+  # =========================
+  # Batch / Loader
+  # =========================
+  batch_size_train: 1
+  batch_size_eval: 1
+  gradient_accumulation_steps: 2
+  num_workers: 2
 
-  num_workers: 4
-  warmup_steps: 200
-
+  # =========================
+  # Runtime
+  # =========================
   seed: 42
   output_dir: "output/gemkr_codebert_dsi"
 
-  amp: True
+  amp: true
   resume_ckpt_path: null
 
-  evaluate: False
+  evaluate: false
   train_splits: ["train"]
 
   device: "cuda"
-  world_size: 8
-  dist_url: "env://"
-  distributed: True
+
+  # =========================
+  # 🔴 单卡关键设置
+  # =========================
+  world_size: 1
+  distributed: false
+  dist_url: null
+
+  # =========================
+  # 🔴 Checkpoint（关键：否则不会保存）
+  # =========================
+  checkpoint:
+    save_freq: 1        # 每个 epoch 保存一次
+    save_last: true     # 训练结束保存 last.pth
+    save_best: false    # 当前无验证集，关闭
