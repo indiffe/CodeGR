@@ -1,32 +1,49 @@
+# ======================
 # Python
+# ======================
 __pycache__/
 *.pyc
 *.pyo
 
+# ======================
 # Conda / venv
+# ======================
 .env
 .venv
 env/
 venv/
 
+# ======================
 # Logs & outputs
+# ======================
 logs/
+log/
 *.log
 wandb/
 runs/
+output/
+outputs/
+work_dirs/
 
+# ======================
 # Datasets & checkpoints
+# ======================
 dataset/
+datasets/
 data/
 checkpoints/
 *.pt
 *.pth
 *.ckpt
+*.bin
 
+# ======================
 # IDE
+# ======================
 .vscode/
 .idea/
 
+# ======================
 # OS
+# ======================
 .DS_Store
-
