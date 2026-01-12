@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES=4
+export CUDA_VISIBLE_DEVICES=7
 export OMP_NUM_THREADS=1
 export PYTHONWARNINGS="ignore"
 

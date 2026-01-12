@@ -18,7 +18,6 @@ model:
   # =========================
   # 🔴 DSI / Memory-critical settings
   # =========================
-  prefix_len: 16                # ★ 必须：不要用 512 token prefix
   freeze_decoder: true          # ★ 必须：单卡 3090 必须冻结
   enable_gradient_checkpointing: true
   decoder_dtype: float16        # 明确 dtype，避免混乱
