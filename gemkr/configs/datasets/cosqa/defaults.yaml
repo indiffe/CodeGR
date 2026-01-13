@@ -2,4 +2,4 @@ datasets:
   cosqa_dsi:
     data_type: text
     build_info:
-      ann_path: "dataset/CoSQA/cosqa_train.jsonl"
+      ann_path: "dataset/CoSQA_std/cosqa_train.jsonl"
