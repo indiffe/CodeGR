@@ -44,7 +44,7 @@ run:
   warmup_steps: 200
 
   weight_decay: 0.01
-  max_epoch: 1
+  max_epoch: 5
   iters_per_epoch: 2400
 
   # =========================

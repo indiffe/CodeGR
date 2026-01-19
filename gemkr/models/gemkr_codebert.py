@@ -33,6 +33,7 @@ class GEMKRCodeBERTDSI(BaseModel):
         decoder_max_length: int = 64,
         decoder_dtype: str = "float16",
         enable_gradient_checkpointing: bool = True,
+        prefix_length: int = 10,
     ):
         super().__init__()
 
@@ -42,6 +43,7 @@ class GEMKRCodeBERTDSI(BaseModel):
         self.encoder = CodeBERTEncoder(
             model_name=encoder_name,
             freeze=freeze_encoder,
+            prefix_length=prefix_length, # pass prefix_length to encoder
         )
         self.encoder_tokenizer = RobertaTokenizer.from_pretrained(encoder_name)
         self.encoder_max_length = int(encoder_max_length)
