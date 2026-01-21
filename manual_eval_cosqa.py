@@ -2,7 +2,7 @@
 # ⚠️ 必须是第一行（任何 import 之前）
 # =========================
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"   # 使用物理 GPU 5
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"   # 使用物理 GPU 5
 
 
 # =========================
@@ -80,7 +80,7 @@ def generate_docids(model, samples, num_beams=10, num_return_sequences=10):
 # =========================
 # 4. Hit@K / Recall@K
 # =========================
-def evaluate_cosqa(model, data, device="cuda", ks=(1, 5, 10)):
+def evaluate_cosqa(model, data, device="cuda", ks=(1, 5,10)):
     model.to(device)
     model.eval()
 
@@ -141,7 +141,7 @@ def main():
     # ---------
     # 5.2 加载 checkpoint
     # ---------
-    ckpt_path = "/data/lizhen/CodeGR/output/gemkr_codebert_dsi/20260113135/checkpoint_epoch_4.pth"
+    ckpt_path = "/data/lizhen/CodeGR/output/gemkr_codebert_dsi/20260121112/checkpoint_epoch_4.pth"
     ckpt = torch.load(ckpt_path, map_location="cpu")
 
     state_dict = ckpt["model"] if "model" in ckpt else ckpt

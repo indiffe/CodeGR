@@ -1,4 +1,3 @@
-# gemkr/models/gemkr_codebert.py
 import torch
 import torch.nn as nn
 from transformers import RobertaTokenizer, LlamaTokenizer
@@ -37,20 +36,16 @@ class GEMKRCodeBERTDSI(BaseModel):
     ):
         super().__init__()
 
-        # ===============================
-        # Encoder (CodeBERT)
-        # ===============================
+        # =============================== Encoder (CodeBERT) ===============================
         self.encoder = CodeBERTEncoder(
             model_name=encoder_name,
             freeze=freeze_encoder,
-            prefix_length=prefix_length, # pass prefix_length to encoder
+            prefix_length=prefix_length,  # pass prefix_length to encoder
         )
         self.encoder_tokenizer = RobertaTokenizer.from_pretrained(encoder_name)
         self.encoder_max_length = int(encoder_max_length)
 
-        # ===============================
-        # Decoder (LLaMA)
-        # ===============================
+        # =============================== Decoder (LLaMA) ===============================
         self.decoder_max_length = int(decoder_max_length)
 
         dtype_map = {
@@ -74,7 +69,7 @@ class GEMKRCodeBERTDSI(BaseModel):
         if self.decoder_tokenizer.pad_token is None:
             self.decoder_tokenizer.pad_token = self.decoder_tokenizer.eos_token
 
-        # ===== register DOCID special tokens (CRITICAL) =====
+        # ===== Register DOCID special tokens (CRITICAL) =====
         special_tokens = {
             "additional_special_tokens": ["<DOCID>", "</DOCID>"]
         }
@@ -82,7 +77,7 @@ class GEMKRCodeBERTDSI(BaseModel):
         if num_added > 0:
             self.decoder.resize_token_embeddings(len(self.decoder_tokenizer))
 
-        # training-time memory controls
+        # Training-time memory controls
         try:
             self.decoder.config.use_cache = False
         except Exception:
@@ -101,19 +96,14 @@ class GEMKRCodeBERTDSI(BaseModel):
             for p in self.decoder.parameters():
                 p.requires_grad = False
 
-        # ===============================
-        # Alignment head
-        # CodeBERT hidden -> LLaMA hidden
-        # ===============================
+        # =============================== Alignment head ===============================
         self.hidden_size = int(hidden_size)
         self.alignment_proj = nn.Linear(
             self.encoder.hidden_size,
             self.hidden_size,
         )
 
-    # ------------------------------------------------
-    # Config-based construction
-    # ------------------------------------------------
+    # ------------------------------------------------ Config-based construction ------------------------------------------------
     @classmethod
     def from_config(cls, cfg):
         return cls(
@@ -125,14 +115,10 @@ class GEMKRCodeBERTDSI(BaseModel):
             encoder_max_length=cfg.get("encoder_max_length", 512),
             decoder_max_length=cfg.get("decoder_max_length", 64),
             decoder_dtype=cfg.get("decoder_dtype", "float16"),
-            enable_gradient_checkpointing=cfg.get(
-                "enable_gradient_checkpointing", True
-            ),
+            enable_gradient_checkpointing=cfg.get("enable_gradient_checkpointing", True),
         )
 
-    # ------------------------------------------------
-    # Helper: tokenize structured docids
-    # ------------------------------------------------
+    # ------------------------------------------------ Helper: tokenize structured docids ------------------------------------------------
     def _tokenize_docids(self, answer_ids):
         return self.decoder_tokenizer(
             answer_ids,
@@ -143,9 +129,7 @@ class GEMKRCodeBERTDSI(BaseModel):
             add_special_tokens=True,
         )
 
-    # ------------------------------------------------
-    # Training forward
-    # ------------------------------------------------
+    # ------------------------------------------------ Training forward ------------------------------------------------
     def forward(self, samples):
         device = self.device
 
@@ -176,7 +160,7 @@ class GEMKRCodeBERTDSI(BaseModel):
 
         B, L_enc, _ = encoder_lm_embeds.shape
 
-        # ===== prefix attention mask (SAFE) =====
+        # ===== Prefix attention mask (SAFE) =====
         prefix_attention_mask = torch.ones(
             (B, L_enc),
             device=device,
@@ -194,7 +178,7 @@ class GEMKRCodeBERTDSI(BaseModel):
         embed_layer = self.decoder.get_input_embeddings()
         doc_embeds = embed_layer(doc_input_ids).to(dtype=self.decoder.dtype)
 
-        # 6) Concat
+        # 6) Concat encoder and DOCID embeddings
         inputs_embeds = torch.cat(
             [encoder_lm_embeds, doc_embeds], dim=1
         )
@@ -222,9 +206,7 @@ class GEMKRCodeBERTDSI(BaseModel):
         )
         return outputs
 
-    # ------------------------------------------------
-    # Generation
-    # ------------------------------------------------
+    # ------------------------------------------------ Generation ------------------------------------------------
     @torch.no_grad()
     def generate(self, samples, **gen_kwargs):
         device = self.device

@@ -6,4 +6,4 @@ export PYTHONWARNINGS="ignore"
 
 CFG="train_configs/gemkr_finetune.yaml"
 
-CUDA_VISIBLE_DEVICES=4 python train.py --cfg-path $CFG
+CUDA_VISIBLE_DEVICES=7 python train.py --cfg-path $CFG
