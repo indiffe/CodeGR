@@ -7,9 +7,9 @@ class CodeBERTEncoder(nn.Module):
     """
     CodeBERT encoder for (NL Query, Code) textual input.
 
-    Responsibilities (GEMKR-compatible):
-        - own tokenizer
-        - encode text into contextual token embeddings
+    - own tokenizer
+    - encode text into contextual token embeddings
+    - prefix tuning: prepend learnable prefix embeddings to output hidden states
     """
 
     def __init__(
@@ -20,20 +20,15 @@ class CodeBERTEncoder(nn.Module):
     ):
         super().__init__()
 
-        # -------------------------
-        # Tokenizer（关键补齐）
-        # -------------------------
         self.tokenizer = RobertaTokenizer.from_pretrained(model_name)
 
-        # -------------------------
-        # Encoder
-        # -------------------------
         self.model = RobertaModel.from_pretrained(model_name)
         self.hidden_size = self.model.config.hidden_size
 
-        # 为每一层增加可学习的前缀
         self.prefix_length = prefix_length
-        self.prefix_embedding = nn.Parameter(torch.randn(self.prefix_length, self.hidden_size))
+        self.prefix_embedding = nn.Parameter(
+            torch.randn(self.prefix_length, self.hidden_size)
+        )
 
         if freeze:
             for p in self.model.parameters():
@@ -46,19 +41,19 @@ class CodeBERTEncoder(nn.Module):
     ) -> torch.Tensor:
         """
         Args:
-            input_ids: LongTensor, shape (B, L)
-            attention_mask: LongTensor, shape (B, L)
+            input_ids: (B, L)
+            attention_mask: (B, L)
 
         Returns:
-            last_hidden_state: FloatTensor, shape (B, L, H)
+            hidden_states_with_prefix: (B, prefix_length + L, H)
         """
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             return_dict=True,
         )
-        # 在CodeBERT的输入中加入前缀
-        prefix = self.prefix_embedding.unsqueeze(0).expand(input_ids.size(0), -1, -1)
-        hidden_states = torch.cat([prefix, outputs.last_hidden_state], dim=1)
 
-        return hidden_states
+        prefix = self.prefix_embedding.unsqueeze(0).expand(input_ids.size(0), -1, -1)
+        hidden_states_with_prefix = torch.cat([prefix, outputs.last_hidden_state], dim=1)
+
+        return hidden_states_with_prefix

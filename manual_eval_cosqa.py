@@ -2,7 +2,7 @@
 # ⚠️ 必须是第一行（任何 import 之前）
 # =========================
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"   # 使用物理 GPU 5
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"   # 使用物理 GPU 7
 
 
 # =========================
@@ -31,21 +31,26 @@ def load_cosqa_jsonl(path, max_samples=None):
 
 
 # =========================
-# 2. docid 标准化（⚠️ 核心修复）
+# 2. docid 标准化（保持你原逻辑）
 # =========================
 def normalize_docid(pred: str) -> str:
-    """
-    只保留 cosqa_ + 8 位数字
-    """
     pred = pred.strip()
-    m = re.match(r"(cosqa_\d{8})", pred)
+
+    # 1) 优先抽标准形式
+    m = re.search(r"(cosqa_\d{8})", pred)
     if m:
         return m.group(1)
+
+    # 2) 否则抽任意 8 位数字，并补回 cosqa_
+    m2 = re.search(r"(\d{8})", pred)
+    if m2:
+        return "cosqa_" + m2.group(1)
+
     return pred
 
 
 # =========================
-# 3. 手动生成 DocID（⚠️ 限长 + 标准化）
+# 3. 手动生成 DocID（最小修改：修复 eos 报错 + max_new_tokens）
 # =========================
 @torch.no_grad()
 def generate_docids(model, samples, num_beams=10, num_return_sequences=10):
@@ -56,13 +61,23 @@ def generate_docids(model, samples, num_beams=10, num_return_sequences=10):
     }
     return: List[str]  # 规范化后的 docid
     """
+
+    # ✅ 修复点1：只用 </DOCID> 作为 eos_token_id（单个 int，不要 list）
+    end_id = model.decoder_tokenizer.convert_tokens_to_ids("</DOCID>")
+    if end_id is None or end_id < 0:
+        # 理论上你模型已经注册了 </DOCID>，这里是兜底
+        end_id = model.decoder_tokenizer.eos_token_id
+
     outputs = model.generate(
         samples,
-        max_length=16,              # ✅ 限制生成长度
+        max_new_tokens=10,                 # ✅ 修复点2：max_length -> max_new_tokens
         num_beams=num_beams,
         num_return_sequences=num_return_sequences,
         early_stopping=True,
+        eos_token_id=int(end_id),          # ✅ 只给一个 eos
+        pad_token_id=int(model.decoder_tokenizer.pad_token_id),
         use_cache=True,
+        min_new_tokens=8,                  # ✅ 确保至少生成8个token，避免直接生成结束符
     )
 
     preds = []
@@ -78,13 +93,13 @@ def generate_docids(model, samples, num_beams=10, num_return_sequences=10):
 
 
 # =========================
-# 4. Hit@K / Recall@K
+# 4. Hit@K / Recall@K + HitCount@K
 # =========================
-def evaluate_cosqa(model, data, device="cuda", ks=(1, 5,10)):
+def evaluate_cosqa(model, data, device="cuda", ks=(1, 5, 10)):
     model.to(device)
     model.eval()
 
-    hit = {k: 0 for k in ks}
+    hit_count = {k: 0 for k in ks}
     total = len(data)
 
     for item in tqdm(data, desc="Evaluating"):
@@ -103,13 +118,16 @@ def evaluate_cosqa(model, data, device="cuda", ks=(1, 5,10)):
 
         for k in ks:
             if gold in preds[:k]:
-                hit[k] += 1
+                hit_count[k] += 1
 
     results = {}
+    # ✅ 新增：命中数 + 命中率
     for k in ks:
-        results[f"Hit@{k}"] = hit[k] / total
-        results[f"Recall@{k}"] = hit[k] / total  # CoSQA 单一 gold
+        results[f"HitCount@{k}"] = hit_count[k]
+        results[f"Hit@{k}"] = hit_count[k] / total
+        results[f"Recall@{k}"] = hit_count[k] / total  # CoSQA 单一 gold
 
+    results["Total"] = total
     return results
 
 
@@ -141,7 +159,7 @@ def main():
     # ---------
     # 5.2 加载 checkpoint
     # ---------
-    ckpt_path = "/data/lizhen/CodeGR/output/gemkr_codebert_dsi/20260121112/checkpoint_epoch_4.pth"
+    ckpt_path = "/data/lizhen/CodeGR/output/gemkr_codebert_dsi/20260126174/checkpoint_epoch_4.pth"
     ckpt = torch.load(ckpt_path, map_location="cpu")
 
     state_dict = ckpt["model"] if "model" in ckpt else ckpt
@@ -196,8 +214,11 @@ def main():
     )
 
     print("\n===== Evaluation Results =====")
-    for k, v in results.items():
-        print(f"{k}: {v:.4f}")
+    print(f"Total: {results['Total']}")
+    for k in (1, 5, 10):
+        print(f"HitCount@{k}: {results[f'HitCount@{k}']}")
+        print(f"Hit@{k}: {results[f'Hit@{k}']:.4f}")
+        print(f"Recall@{k}: {results[f'Recall@{k}']:.4f}")
 
 
 if __name__ == "__main__":
