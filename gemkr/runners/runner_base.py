@@ -21,12 +21,7 @@ from torch.utils.data import DataLoader
 
 def _fallback_collate(batch: List[Any]) -> Any:
     """
-    A safe collate_fn for string-heavy samples (e.g., {"query": str, "code": str, "answer_id": str}).
-    It avoids torch default_collate which fails on strings / custom objects.
-
-    Rules:
-      - If elements are dict: collate to dict of lists
-      - Else: return the list as-is
+    Safe collate for string-heavy samples.
     """
     if len(batch) == 0:
         return batch
@@ -34,15 +29,12 @@ def _fallback_collate(batch: List[Any]) -> Any:
     elem = batch[0]
     if isinstance(elem, dict):
         out: Dict[str, Any] = {}
-        keys = elem.keys()
-        for k in keys:
+        for k in elem.keys():
             out[k] = [b[k] for b in batch]
         return out
 
-    # If dataset returns tuples/lists, keep them grouped
     if isinstance(elem, (list, tuple)):
-        # transpose
-        return [ _fallback_collate([b[i] for b in batch]) for i in range(len(elem)) ]
+        return [_fallback_collate([b[i] for b in batch]) for i in range(len(elem))]
 
     return batch
 
@@ -51,9 +43,9 @@ def _fallback_collate(batch: List[Any]) -> Any:
 class RunnerBase:
     """
     Modified runner with:
-      - Correct handling of datasets wrapped in list/tuple (common in gemkr builders)
-      - Always-valid collate_fn (uses dataset.collater if present; else fallback)
-      - Per-epoch checkpoint saving
+      - list/tuple dataset unwrap
+      - safe collate_fn
+      - per-epoch checkpoint saving
     """
 
     def __init__(self, cfg, task, model, datasets, job_id):
@@ -99,11 +91,34 @@ class RunnerBase:
         return self._wrapped_model
 
     # ------------------------------------------------------------------
+    def unwrap_dist_model(self, model):
+        return model.module if self.use_distributed else model
+
+    def _print_trainable_params(self, max_lines: int = 200):
+        model_no_ddp = self.unwrap_dist_model(self.model)
+        total, trainable = 0, 0
+        lines = []
+        for n, p in model_no_ddp.named_parameters():
+            num = p.numel()
+            total += num
+            if p.requires_grad:
+                trainable += num
+                lines.append(f"[TRAIN] {n:70s} dtype={str(p.dtype):12s} shape={tuple(p.shape)} numel={num}")
+        logging.info(f"Trainable params: {trainable} / {total} ({100.0 * trainable / max(total,1):.6f}%)")
+        for s in lines[:max_lines]:
+            logging.info(s)
+        if len(lines) > max_lines:
+            logging.info(f"... ({len(lines) - max_lines} more trainable params not shown)")
+
+    # ------------------------------------------------------------------
     # optimizer / scaler / lr scheduler
     # ------------------------------------------------------------------
     @property
     def optimizer(self):
         if self._optimizer is None:
+            # ensure model is moved to device / wrapped before scanning parameters
+            _ = self.model
+
             p_wd, p_non_wd = [], []
             for n, p in self.model.named_parameters():
                 if not p.requires_grad:
@@ -189,8 +204,6 @@ class RunnerBase:
 
             loaders = []
             for ds, bsz, is_train in zip(datasets_list, batch_sizes, is_trains):
-                # ✅ 핵심修复1：处理 list/tuple 包装的 dataset
-                # 你现在的报错就是 ds 是 [CoSQADSIPretrainDataset(...)] 这种情况
                 if isinstance(ds, (list, tuple)):
                     if len(ds) == 0:
                         raise ValueError("Empty dataset container (list/tuple) encountered.")
@@ -198,16 +211,14 @@ class RunnerBase:
                 else:
                     base_ds = ds
 
-                # ✅ 핵심修复2：优先用框架 collater，否则用 fallback
                 collate_fn = getattr(base_ds, "collater", None)
                 if collate_fn is None:
-                    # 有些实现用 collate_fn 命名
                     collate_fn = getattr(base_ds, "collate_fn", None)
                 if collate_fn is None:
                     collate_fn = _fallback_collate
 
                 loader = DataLoader(
-                    base_ds,  # ✅ 必须是 Dataset，本体
+                    base_ds,
                     batch_size=bsz,
                     shuffle=is_train,
                     num_workers=int(self.config.run_cfg.num_workers),
@@ -216,7 +227,6 @@ class RunnerBase:
                     collate_fn=collate_fn,
                 )
 
-                # 保持你原本的 Prefetch/IterLoader 逻辑
                 loader = PrefetchLoader(loader)
                 if is_train:
                     loader = IterLoader(loader, use_distributed=False)
@@ -253,8 +263,20 @@ class RunnerBase:
     def train(self):
         self.log_config()
 
+        try:
+            self._print_trainable_params()
+        except Exception as e:
+            logging.warning(f"Failed to print trainable params: {e}")
+
         for epoch in range(self.start_epoch, int(self.config.run_cfg.max_epoch)):
             logging.info(f"Epoch {epoch} start")
+
+            # ✅ 兼容你的 YAML：gradient_accumulation_steps
+            accum = (
+                self.config.run_cfg.get("accum_grad_iters", None)
+                or self.config.run_cfg.get("gradient_accumulation_steps", None)
+                or 1
+            )
 
             stats = self.task.train_epoch(
                 epoch=epoch,
@@ -265,7 +287,7 @@ class RunnerBase:
                 lr_scheduler=self.lr_scheduler,
                 cuda_enabled=self.device.type == "cuda",
                 log_freq=self.config.run_cfg.get("log_freq", 50),
-                accum_grad_iters=self.config.run_cfg.get("accum_grad_iters", 1),
+                accum_grad_iters=int(accum),
             )
 
             self.log_stats(stats, "train")
@@ -278,23 +300,16 @@ class RunnerBase:
     # ------------------------------------------------------------------
     # checkpoint
     # ------------------------------------------------------------------
-    def unwrap_dist_model(self, model):
-        return model.module if self.use_distributed else model
-
     @main_process
     def _save_checkpoint(self, cur_epoch: int):
+        """
+        ✅ 保存全量 checkpoint（不要再删冻结参数）
+        否则 eval/load 时会 Missing keys 爆炸，模型退化成常量输出。
+        """
         model_no_ddp = self.unwrap_dist_model(self.model)
 
-        param_grad = {k: v.requires_grad for k, v in model_no_ddp.named_parameters()}
-        state_dict = model_no_ddp.state_dict()
-
-        # 删除冻结参数（保持你原版逻辑）
-        for k in list(state_dict.keys()):
-            if k in param_grad and not param_grad[k]:
-                del state_dict[k]
-
         save_obj = {
-            "model": state_dict,
+            "model": model_no_ddp.state_dict(),  # ✅ 全量保存
             "optimizer": self.optimizer.state_dict(),
             "scaler": self.scaler.state_dict() if self.scaler else None,
             "epoch": cur_epoch,
@@ -302,7 +317,7 @@ class RunnerBase:
         }
 
         save_path = os.path.join(self.output_dir, f"checkpoint_epoch_{cur_epoch}.pth")
-        logging.info(f"Saving checkpoint to {save_path}")
+        logging.info(f"Saving FULL checkpoint to {save_path} (keys={len(save_obj['model'])})")
         torch.save(save_obj, save_path)
 
     # ------------------------------------------------------------------

@@ -6,7 +6,7 @@ model:
   # =========================
   encoder_name: /data/lizhen/CodeDSI/codebert-base
   freeze_encoder: true
-  encoder_max_length: 512
+  encoder_max_length: 256
 
   # =========================
   # Decoder (LLaMA)
@@ -21,6 +21,7 @@ model:
   freeze_decoder: true          # ★ 必须：单卡 3090 必须冻结
   enable_gradient_checkpointing: true
   decoder_dtype: float16        # 明确 dtype，避免混乱
+  unfreeze_decoder_embed_and_lm_head: true
 
   # =========================
   # Framework flags

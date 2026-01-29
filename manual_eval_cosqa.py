@@ -17,6 +17,42 @@ from gemkr.models.gemkr_codebert import GEMKRCodeBERTDSI
 
 
 # =========================
+# 0. 推理 dtype 修复（避免 Half/Float 报错）
+# =========================
+def fix_infer_dtypes(model):
+    """
+    推理阶段统一 dtype，避免：
+      - alignment_proj mat1/mat2 dtype mismatch
+      - lm_head expected Half but found Float
+
+    推荐推理配置：
+      - alignment_proj: FP32（接 CodeBERT 输出通常 FP32）
+      - decoder/emb/lm_head: FP16（和 decoder hidden_states 一致）
+    """
+    # alignment_proj 用 fp32
+    model.alignment_proj.to(dtype=torch.float32)
+
+    # decoder 侧统一 fp16
+    model.decoder.to(dtype=torch.float16)
+    model.decoder.get_input_embeddings().to(dtype=torch.float16)
+    model.decoder.get_output_embeddings().to(dtype=torch.float16)
+    if hasattr(model.decoder, "lm_head") and model.decoder.lm_head is not None:
+        model.decoder.lm_head.to(dtype=torch.float16)
+
+    # 打印确认
+    try:
+        print(
+            "[DTYPE CHECK]",
+            "alignment_proj:", model.alignment_proj.weight.dtype,
+            "| decoder(any):", next(model.decoder.parameters()).dtype,
+            "| emb:", next(model.decoder.get_input_embeddings().parameters()).dtype,
+            "| lm_head:", next(model.decoder.get_output_embeddings().parameters()).dtype,
+        )
+    except Exception as e:
+        print("Could not inspect dtypes:", repr(e))
+
+
+# =========================
 # 1. 手动加载 CoSQA jsonl
 # =========================
 def load_cosqa_jsonl(path, max_samples=None):
@@ -34,7 +70,9 @@ def load_cosqa_jsonl(path, max_samples=None):
 # 2. docid 标准化（保持你原逻辑）
 # =========================
 def normalize_docid(pred: str) -> str:
-    pred = pred.strip()
+    if pred is None:
+        return pred
+    pred = str(pred).strip()
 
     # 1) 优先抽标准形式
     m = re.search(r"(cosqa_\d{8})", pred)
@@ -50,34 +88,28 @@ def normalize_docid(pred: str) -> str:
 
 
 # =========================
-# 3. 手动生成 DocID（最小修改：修复 eos 报错 + max_new_tokens）
+# 3. 手动生成 DocID（最小修改：eos + max_new_tokens）
 # =========================
 @torch.no_grad()
 def generate_docids(model, samples, num_beams=10, num_return_sequences=10):
     """
-    samples = {
-        "query": [str],
-        "code":  [str]
-    }
-    return: List[str]  # 规范化后的 docid
+    samples = {"query":[str], "code":[str]}
+    return: List[str]  # normalize 后的 docid
     """
-
-    # ✅ 修复点1：只用 </DOCID> 作为 eos_token_id（单个 int，不要 list）
     end_id = model.decoder_tokenizer.convert_tokens_to_ids("</DOCID>")
     if end_id is None or end_id < 0:
-        # 理论上你模型已经注册了 </DOCID>，这里是兜底
         end_id = model.decoder_tokenizer.eos_token_id
 
     outputs = model.generate(
         samples,
-        max_new_tokens=10,                 # ✅ 修复点2：max_length -> max_new_tokens
-        num_beams=num_beams,
-        num_return_sequences=num_return_sequences,
+        max_new_tokens=10,
+        num_beams=int(num_beams),
+        num_return_sequences=int(num_return_sequences),
         early_stopping=True,
-        eos_token_id=int(end_id),          # ✅ 只给一个 eos
+        eos_token_id=int(end_id),
         pad_token_id=int(model.decoder_tokenizer.pad_token_id),
         use_cache=True,
-        min_new_tokens=8,                  # ✅ 确保至少生成8个token，避免直接生成结束符
+        min_new_tokens=8,
     )
 
     preds = []
@@ -121,7 +153,6 @@ def evaluate_cosqa(model, data, device="cuda", ks=(1, 5, 10)):
                 hit_count[k] += 1
 
     results = {}
-    # ✅ 新增：命中数 + 命中率
     for k in ks:
         results[f"HitCount@{k}"] = hit_count[k]
         results[f"Hit@{k}"] = hit_count[k] / total
@@ -142,7 +173,7 @@ def main():
     print("device name =", torch.cuda.get_device_name(0))
 
     # ---------
-    # 5.1 构建模型
+    # 5.1 构建模型（注意：和训练保持一致）
     # ---------
     model = GEMKRCodeBERTDSI(
         encoder_name="/data/lizhen/CodeDSI/codebert-base",
@@ -154,66 +185,59 @@ def main():
         decoder_max_length=64,
         decoder_dtype="float16",
         enable_gradient_checkpointing=False,
+        prefix_length=16,
+        # ✅ 训练开了就保持一致（即使推理我们会 dtype 修复）
+        unfreeze_decoder_embed_and_lm_head=True,
     )
 
     # ---------
     # 5.2 加载 checkpoint
     # ---------
-    ckpt_path = "/data/lizhen/CodeGR/output/gemkr_codebert_dsi/20260126174/checkpoint_epoch_4.pth"
+    ckpt_path = "/data/lizhen/CodeGR/output/gemkr_codebert_dsi/20260129113/checkpoint_epoch_4.pth"
     ckpt = torch.load(ckpt_path, map_location="cpu")
 
-    state_dict = ckpt["model"] if "model" in ckpt else ckpt
+    state_dict = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
 
     print("Loaded checkpoint:", ckpt_path)
-    print("Missing keys:", missing)
-    print("Unexpected keys:", unexpected)
+    print("Missing keys count:", len(missing))
+    print("Unexpected keys count:", len(unexpected))
 
     model.to(device)
     model.eval()
 
+    # ✅ 推理 dtype 修复
+    fix_infer_dtypes(model)
+
     # ---------
-    # 5.3 加载 CoSQA 验证集
+    # 5.3 加载 CoSQA 训练集（先测训练 hit，验证是否学到了）
     # ---------
     data = load_cosqa_jsonl(
-        "/data/lizhen/CodeGR/dataset/CoSQA_std/cosqa_valid.jsonl",
-        max_samples=None,
+        "/data/lizhen/CodeGR/dataset/CoSQA_std/cosqa_train.jsonl",
+        max_samples=None,   # 先全量；想快速看就填 200/1000
     )
 
     # ---------
-    # 5.4 SANITY CHECK
+    # 5.4 SANITY CHECK（看第一个样本）
     # ---------
     item = data[0]
-    samples = {
-        "query": [item["query"]],
-        "code":  [item["code"]],
-    }
+    samples = {"query": [item["query"]], "code": [item["code"]]}
 
-    preds = generate_docids(
-        model,
-        samples,
-        num_beams=5,
-        num_return_sequences=5,
-    )
+    preds = generate_docids(model, samples, num_beams=10, num_return_sequences=10)
 
-    print("\n===== SANITY CHECK =====")
+    print("\n===== SANITY CHECK (TRAIN) =====")
     print("Gold docid:", item["docid"])
     print("Generated docids:")
     for p in preds:
         print(f"  [{p}]")
-    print("========================\n")
+    print("================================\n")
 
     # ---------
-    # 5.5 正式评测
+    # 5.5 正式评测（TRAIN）
     # ---------
-    results = evaluate_cosqa(
-        model,
-        data,
-        device=device,
-        ks=(1, 5, 10),
-    )
+    results = evaluate_cosqa(model, data, device=device, ks=(1, 5, 10))
 
-    print("\n===== Evaluation Results =====")
+    print("\n===== Evaluation Results (TRAIN) =====")
     print(f"Total: {results['Total']}")
     for k in (1, 5, 10):
         print(f"HitCount@{k}: {results[f'HitCount@{k}']}")
